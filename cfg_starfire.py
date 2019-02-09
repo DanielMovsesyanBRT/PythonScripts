@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 
 import socket, threading, time
+import nmea
 
 from tkinter import *
 from tkinter import ttk
@@ -31,11 +32,18 @@ class Connection:
         with cv:
             term = self._terminate
 
+        full_string = ""
         while not term:
             try:
-                data = self._sock.recv(1024)
-                if data and self._callback:
-                    self._callback(data)
+                data = self._sock.recv(10)
+                full_string += str(data, "utf-8")
+                crlf = full_string.find("\r\n")
+                if crlf != -1:
+                    data_string = full_string[:crlf]
+                    full_string = full_string[crlf+2:]
+
+                    if data and self._callback:
+                        self._callback(data_string)
 
             except socket.error:
                 if not self._sock:
@@ -134,6 +142,23 @@ class GPSFrame(ttk.Frame):
 
         self.bind("<Destroy>", self._delete_window)
 
+        self._latitude = DoubleVar()
+        self._lat_label = Label(self, text="Latitude").grid(column=0, row=5, sticky='wn')
+        self._lat_entry = Entry(self, state='readonly', bg='gray', textvariable=self._latitude)
+        self._lat_entry.grid(column=0, row=6, sticky='wn')
+
+        self._longitude = DoubleVar()
+        self._lon_label = Label(self, text="Longitude").grid(column=1, row=5, sticky='wn')
+        self._lon_entry = Entry(self, state='readonly', bg='gray', textvariable=self._longitude)
+        self._lon_entry.grid(column=1, row=6, sticky='wn')
+
+        self._altitude = DoubleVar()
+        self._alt_label = Label(self, text="Altitude").grid(column=2, row=5, sticky='wn')
+        self._alt_entry = Entry(self, state='readonly', bg='gray', textvariable=self._altitude)
+        self._alt_entry.grid(column=2, row=6, sticky='wn')
+
+        self._gnss = nmea.GNSS()
+
     def _connect(self):
         if not self._cnt:
             self._cnt = Connection(self._ipAddress.get(), self._port.get(), self._callback)
@@ -145,15 +170,20 @@ class GPSFrame(ttk.Frame):
                 self._connectBtn['text'] = "Connect"
                 self._cnt = None
 
-    def _callback(self, data):
-        log_string = str(data, "utf-8")
-        log_string = re.sub(r'\r\n', r'\n', log_string)
+    def _callback(self, data_string):
+        log_string = re.sub(r'\r\n', r'', data_string)
+        log_string += '\n'
 
         if self._text_log and log_string[0] != '[':
             self._text_log.config(state=NORMAL)
             self._text_log.insert('end', log_string)
             self._text_log.see('end')
             self._text_log.config(state=DISABLED)
+            self._gnss.add_nmea_string(data_string)
+
+            self._latitude.set(self._gnss.latitude)
+            self._longitude.set(self._gnss.longitude)
+            self._altitude.set(self._gnss.altitude)
 
         elif self._cmd_log and log_string[0] == '[':
             self._cmd_log.config(state=NORMAL)
